@@ -1,3 +1,7 @@
+from collections import defaultdict
+from itertools import groupby
+
+from tqdm import tqdm
 from parsing import action
 from output import *
 
@@ -10,7 +14,7 @@ np.set_printoptions(precision=3) # for my numpy, this does not work on float64s 
 from scipy.optimize import linprog
 from copy import deepcopy
 import operator
-from functools import reduce
+from functools import cmp_to_key, reduce
 
 np.set_printoptions(precision=3)
 
@@ -120,15 +124,17 @@ def optimize(selected_actions, selected_items, min_gains, eps=1e-5, background={
     # note that method="highs" only appeared in SciPy 1.6.0.
     # The improvement over simplex makes it definitely worth
     # manually installing SciPy 1.6.1 (or later)
-    
-    res=linprog(c=c, A_ub=A_ub, b_ub=b_ub, method="highs")
+    inty = isinstance(list(min_gains.values())[0], float)
+    if inty:
+        res=linprog(c=c, A_ub=A_ub, b_ub=b_ub, method="highs", integrality=np.ones(c.shape))
+    else:
+        res=linprog(c=c, A_ub=A_ub, b_ub=b_ub, method="highs")
 
     # now, present the results in a nice form
     
     myres=type("result", (), {})()
     myres.status=res.status
     myres.result=res
-
     if type(res.x)==type(None):
         if False and res.message.find("Please submit a bug report.")!=-1:
             # submitted as https://github.com/scipy/scipy/issues/13767
@@ -152,7 +158,6 @@ def optimize(selected_actions, selected_items, min_gains, eps=1e-5, background={
     netchanges=A0 @ (-res.x) 
     myres.changes = vector2dict(netchanges, n2i, eps)
     myres.residual= vector2dict(netchanges + b_ub, n2i, eps)
-
     # gross changes
     gains = - np.vectorize(lambda x:x*int(x<0))(A0) @ res.x 
     myres.gains  = vector2dict(gains, n2i, eps)
@@ -160,6 +165,75 @@ def optimize(selected_actions, selected_items, min_gains, eps=1e-5, background={
 
     myres.net_action_cost  = res.fun    # with rebate from background
     myres.gross_action_cost= c0 @ res.x # without rebate from background
+    if inty:
+        actionNum = 0
+        for action in myres.actions:
+            myres.actions[action] = round(myres.actions[action])
+            actionNum += max(0, myres.actions[action])
+        newAction = list(myres.actions.items())
+        currentRes = defaultdict(int)
+        newAction2 = []
+        while actionNum > 0:
+            tracking = defaultdict(dict)
+            foundOne = False
+            c = -1
+            for action, count in newAction:
+                c += 1
+                if count <= 0:
+                    continue
+                for change in selected_actions[action].changes:
+                    tracking[action][change] = currentRes[change] + selected_actions[action].changes[change]
+                if min(tracking[action].values()) >= 0:
+                    foundOne = True
+                    break
+            if not foundOne:
+                price = {}
+                for action in tracking:
+                    if "Sell" in action:
+                        continue
+                    price[action] = 0
+                    for change in tracking[action]:
+                        if tracking[action][change] >= 0:
+                            continue
+                        try:
+                            price[action] += selected_actions["Sell at Bazaar: " + change].changes["Penny"]
+                        except KeyError:
+                            price[action] += float('inf')
+                            break
+                action = min(price.items(), key = lambda x: x[1])[0]
+                for c in range(len(newAction)+1):
+                    if newAction[c][0] == action:
+                        break
+            newAction2.append(action)
+            actionNum -= 1
+            for res in currentRes:
+                if not res in tracking[action]:
+                    tracking[action][res] = currentRes[res]
+            currentRes = defaultdict(int, tracking[action])
+            temp = (newAction[c][0], newAction[c][1] - 1)
+            del newAction[c]
+            noSell = True
+            for action in newAction:
+                if not "Sell" in action[0]:
+                    noSell = False
+                    break
+            if "Sell" in temp[0] and noSell:
+                newAction.append(temp)
+            else:
+                newAction.insert(0, temp)
+        newAction = newAction2
+        groupCount = 1
+        groups = list(newAction)
+        while len(groups) != groupCount:
+            oldGroup = list(groups)
+            myres.actions = []
+            groupCount = len(groups)
+            for k, g in groupby(groups):
+                myres.actions.append((str(k), len(list(g))))
+            groups = list(myres.actions)
+        myres.actions = oldGroup
+    else:
+        myres.actions = myres.actions.items()
     return myres
 
 def run(actions, items, min_gains, **kwargs):
@@ -231,12 +305,12 @@ def best_grinds(actions, items, min_gains, num_grinds, max_actions=None, backgro
             break
         if iname!=None and not iname in ["Echo", "Penny", "Hinterland Scrip"]:
             # key action is the action which yields the most <item>
-            key_action=sorted(res.actions.items(),
+            key_action=sorted(res.actions,
                               key=lambda a:-a[1]*actions[a[0]].changes.get(iname, 0.0))
         else:
             key_action=sorted(filter(lambda a:not reduce(operator.or_,
                                                          map(lambda p:a[0].startswith(p), keep_prefixes)),
-                                     res.actions.items()),
+                                     res.actions),
                               key=lambda a:-a[1])
         if len(key_action)==0:
             print("Could not identify key action! Dumping all actions used")

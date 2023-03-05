@@ -10,3 +10,4 @@ __pychache__
 .#*
 _gen_*.py
 output/
+output*

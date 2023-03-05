@@ -33,7 +33,7 @@ def _githublink(action, linkname=None):
     if not linkname:
         linkname=action.name
     url="https://github.com/klenze/emissary/blob/main/"
-    return '<a href="%s/%s#L%d">%s</a>' %(url,action.file,
+    return '<a href="%s/%s#L%d">%s</a><br>' %(url,action.file,
                                           action.line, linkname)
 
 buysellre=re.compile("((?:Buy|Sell) at .*): (.*)")
@@ -43,16 +43,16 @@ def link_action(aname):
     res=""
     res+=_githublink(aname)
     m=buysellre.match(aname)
-    if actions[aname].on_wiki:
+    """if actions[aname].on_wiki:
         res+="  "+_wiki_link(aname, "(wiki)")
     elif m:
-        res+="  "+_wiki_link(m.group(2), "(wiki)")
+        res+="  "+_wiki_link(m.group(2), "(wiki)")"""
     return res
 
 def print_details(res, key_action="", skip=0, force=False):
     if not verbose and not force:
         return
-    for a,c in res.actions.items():
+    for a,c in res.actions:
         if a.startswith("Parabola (Wrapper)") or a.startswith("Convert:")\
            or a.startswith("Get Choice:"):
             continue

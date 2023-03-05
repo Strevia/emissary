@@ -190,7 +190,10 @@ def mark_wiki_actions(actions):
         l=l.strip()
         if l.startswith("#"):
             continue
-        actions[l].on_wiki=True
+        try:
+            actions[l].on_wiki=True
+        except KeyError:
+            continue
 
 def read_all_actions(actions, item2category, cards):
     for f in filter(lambda f:f.endswith(".txt") and not f.startswith("."),
